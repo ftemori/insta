@@ -1,25 +1,147 @@
-/* Insta focus rules. Classes on <html> are set by focus.js from settings.json. */
+/* ===== Insta: app look + focus rules. Classes on <html> are set by focus.js. ===== */
 
-/* Reels tab in the bottom/side navigation */
+/* ---- App feel: no tap flashes, no text-selection callouts, no rubber zoom ---- */
+html {
+  -webkit-tap-highlight-color: transparent !important;
+  -webkit-text-size-adjust: 100% !important;
+}
+html, body {
+  -webkit-touch-callout: none !important;
+  overscroll-behavior-y: none;
+}
+body *:not(input):not(textarea):not([contenteditable="true"]):not([contenteditable="true"] *) {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+
+/* ---- Instagram's own bottom nav and "open in app" prompts are replaced ---- */
+.insta-native-nav,
+.insta-app-banner {
+  display: none !important;
+}
+
+/* ---- Leave room for the floating tab bar ---- */
+html.insta-has-tabbar body {
+  padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
+/* ---- Reels ---- */
 html.insta-hide-reels-tab a[href="/reels/"],
 html.insta-hide-reels-tab a[href^="/reels/"] {
   display: none !important;
 }
 
-/* "For you" / "Following" switcher at the top of the home feed */
+/* ---- Home feed: hide the "For you" switch ---- */
 html.insta-following-only a[href="/?variant=home"],
 html.insta-following-only a[href^="/?variant=home&"] {
   display: none !important;
 }
 
-/* Explore grid: on the search page only the search box and results stay */
+/* ---- Search without the Explore grid ---- */
 html.insta-on-explore main a[href^="/p/"],
 html.insta-on-explore main a[href^="/reel/"],
 html.insta-on-explore main a[href^="/reels/"] {
   display: none !important;
 }
 
-/* Posts hidden by focus.js (Reels in feed, suggested posts) */
+/* ---- Posts hidden by focus.js ---- */
 .insta-hidden {
   display: none !important;
+}
+
+/* ===== Floating glass tab bar (iOS style) ===== */
+#insta-tabbar {
+  --glass-bg: rgba(255, 255, 255, 0.62);
+  --glass-border: rgba(255, 255, 255, 0.75);
+  --glass-edge: rgba(0, 0, 0, 0.08);
+  --glass-shadow: 0 10px 34px rgba(0, 0, 0, 0.16), 0 1px 3px rgba(0, 0, 0, 0.08);
+  --icon: #111;
+  --active-bg: rgba(0, 0, 0, 0.07);
+
+  position: fixed;
+  z-index: 2147483000;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 6px);
+  transform: translateX(-50%);
+  width: min(92vw, 420px);
+  height: 62px;
+  box-sizing: border-box;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 31px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(22px) saturate(185%);
+  backdrop-filter: blur(22px) saturate(185%);
+  border: 0.5px solid var(--glass-border);
+  box-shadow: var(--glass-shadow), inset 0 0.5px 0 rgba(255, 255, 255, 0.9), inset 0 -0.5px 0 var(--glass-edge);
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.2s ease;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+#insta-tabbar.insta-tabbar-hidden {
+  transform: translateX(-50%) translateY(140%);
+  opacity: 0;
+  pointer-events: none;
+}
+@media (prefers-color-scheme: dark) {
+  #insta-tabbar {
+    --glass-bg: rgba(38, 38, 40, 0.55);
+    --glass-border: rgba(255, 255, 255, 0.14);
+    --glass-edge: rgba(0, 0, 0, 0.4);
+    --glass-shadow: 0 10px 34px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);
+    --icon: #f5f5f5;
+    --active-bg: rgba(255, 255, 255, 0.12);
+  }
+  #insta-tabbar { box-shadow: var(--glass-shadow), inset 0 0.5px 0 rgba(255, 255, 255, 0.18); }
+}
+#insta-tabbar button {
+  flex: 1 1 0;
+  height: 50px;
+  margin: 0 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 25px;
+  background: transparent;
+  color: var(--icon);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.12s ease;
+}
+#insta-tabbar button:active { transform: scale(0.9); }
+#insta-tabbar button.insta-active { background: var(--active-bg); }
+#insta-tabbar svg { width: 26px; height: 26px; display: block; }
+#insta-tabbar svg .fill-when-active { fill: none; }
+#insta-tabbar button.insta-active svg .fill-when-active { fill: currentColor; }
+#insta-tabbar button.insta-active svg { stroke-width: 2.3; }
+#insta-tabbar .insta-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  box-sizing: border-box;
+  border: 1.5px solid transparent;
+}
+#insta-tabbar button.insta-active .insta-avatar { border-color: var(--icon); }
+#insta-tabbar .insta-hidden-tab { display: none; }
+
+/* ===== Glass header ===== */
+.insta-glass-top,
+.insta-glass-top > div {
+  background-color: rgba(255, 255, 255, 0.72) !important;
+}
+.insta-glass-top {
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  border-bottom-color: transparent !important;
+}
+@media (prefers-color-scheme: dark) {
+  .insta-glass-top,
+  .insta-glass-top > div {
+    background-color: rgba(0, 0, 0, 0.6) !important;
+  }
 }

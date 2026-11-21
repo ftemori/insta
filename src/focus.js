@@ -1,7 +1,7 @@
 /*
  * Insta focus script.
  * Runs at document start on every instagram.com page inside the app.
- * It only hides and redirects; it never reads or sends any of your data.
+ * It hides, redirects and draws the app's own tab bar; it never reads or sends your data.
  * SETTINGS and CSS are filled in by scripts/build-inject.mjs.
  */
 (function () {
@@ -12,25 +12,74 @@
   var SETTINGS = __SETTINGS__;
   var CSS = __CSS__;
 
+  // At document start the <html> element may not exist yet.
+  if (!document.documentElement) {
+    var waitForRoot = new MutationObserver(function () {
+      if (document.documentElement) { waitForRoot.disconnect(); boot(); }
+    });
+    waitForRoot.observe(document, { childList: true });
+  } else {
+    boot();
+  }
+
+  function boot() {
   var root = document.documentElement;
   if (SETTINGS.hideReelsTab) root.classList.add('insta-hide-reels-tab');
   if (SETTINGS.followingOnlyFeed) root.classList.add('insta-following-only');
 
   // ---- styles -----------------------------------------------------------
+  // Constructed stylesheets are not blocked by a page's Content Security Policy,
+  // a <style> tag can be, so try that first.
+  var sheetAdded = false;
   function addStyle() {
+    if (sheetAdded) return;
+    try {
+      if (document.adoptedStyleSheets !== undefined && window.CSSStyleSheet) {
+        var sheet = new CSSStyleSheet();
+        sheet.replaceSync(CSS);
+        sheet.__insta = true;
+        document.adoptedStyleSheets = document.adoptedStyleSheets.concat([sheet]);
+        sheetAdded = true;
+        return;
+      }
+    } catch (e) { /* fall through */ }
     if (document.getElementById('insta-focus-style')) return;
     var style = document.createElement('style');
     style.id = 'insta-focus-style';
     style.textContent = CSS;
     (document.head || document.documentElement).appendChild(style);
   }
+  function ensureStyle() {
+    if (sheetAdded) {
+      // Some page code replaces adoptedStyleSheets; re-add if ours went missing.
+      var has = false;
+      var list = document.adoptedStyleSheets || [];
+      for (var i = 0; i < list.length; i++) if (list[i].__insta) has = true;
+      if (!has) { sheetAdded = false; }
+    }
+    addStyle();
+  }
+
+  // ---- app viewport: no pinch zoom, draw under the home indicator --------
+  function fixViewport() {
+    var content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+    var meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) {
+      if (!document.head) return;
+      meta = document.createElement('meta');
+      meta.name = 'viewport';
+      document.head.appendChild(meta);
+    }
+    if (meta.getAttribute('content') !== content) meta.setAttribute('content', content);
+  }
 
   // ---- redirects (Instagram is a single-page app, so we watch every URL change)
+  function isHome(path) { return path === '/' || path === ''; }
+
   function targetFor(loc) {
     var path = loc.pathname;
     var params = new URLSearchParams(loc.search);
-
-    if (SETTINGS.followingOnlyFeed && path === '/' && params.get('variant') !== 'following') {
+    if (SETTINGS.followingOnlyFeed && isHome(path) && params.get('variant') !== 'following') {
       return '/?variant=following';
     }
     if (SETTINGS.blockReelsPage && /^\/reels(\/|$)/.test(path)) {
@@ -42,7 +91,6 @@
     return null;
   }
 
-  // Guard against redirect loops in case Instagram rewrites the URL back.
   function recentlyRedirected(target) {
     try {
       var last = JSON.parse(sessionStorage.getItem('instaFocusRedirect') || 'null');
@@ -65,7 +113,7 @@
     var original = history[name];
     history[name] = function () {
       var result = original.apply(this, arguments);
-      onUrlChange();
+      setTimeout(onUrlChange, 0);
       return result;
     };
   }
@@ -74,13 +122,13 @@
   function onUrlChange() {
     if (window.location.href === lastHref) return;
     lastHref = window.location.href;
-    enforceUrl();
+    if (enforceUrl()) return;
     scan();
   }
 
   // ---- links: point Home and Search at the calm versions -----------------
   function fixLinks(scope) {
-    var links = scope.querySelectorAll ? scope.querySelectorAll('a[href]') : [];
+    var links = scope.querySelectorAll('a[href]');
     for (var i = 0; i < links.length; i++) {
       var a = links[i];
       var href = a.getAttribute('href');
@@ -89,38 +137,260 @@
     }
   }
 
+  // ---- Instagram's own bottom navigation ---------------------------------
+  var RESERVED = /^\/(explore|reels|direct|accounts|stories|p|reel|create|about|legal|developer|web|challenge|emails|session|privacy|terms|api|graphql|static|tv|ar|qr)(\/|$)/;
+  var CREATE_LABEL = /new post|create|neuer beitrag|erstellen|beitrag erstellen/i;
+
+  function closestFixed(el) {
+    var node = el;
+    for (var depth = 0; node && node !== document.body && depth < 12; depth++) {
+      var pos = window.getComputedStyle(node).position;
+      if (pos === 'fixed' || pos === 'sticky') return node;
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  var createTarget = null;
+
+  function learnFromNativeNav(nav) {
+    // Profile link: the nav entry pointing at "/<username>/".
+    var links = nav.querySelectorAll('a[href]');
+    for (var i = 0; i < links.length; i++) {
+      var href = links[i].getAttribute('href') || '';
+      if (/^\/[A-Za-z0-9._]+\/$/.test(href) && !RESERVED.test(href)) {
+        try {
+          localStorage.setItem('instaProfilePath', href);
+          var img = links[i].querySelector('img');
+          if (img && img.src) localStorage.setItem('instaProfilePic', img.src);
+        } catch (e) {}
+      }
+    }
+    // New post: a create link, or a button/svg labelled "New post".
+    var create = nav.querySelector('a[href*="/create/"]');
+    if (!create) {
+      var svgs = nav.querySelectorAll('svg[aria-label]');
+      for (var j = 0; j < svgs.length; j++) {
+        if (CREATE_LABEL.test(svgs[j].getAttribute('aria-label') || '')) {
+          create = svgs[j].closest('a, button, [role="button"], [role="link"]') || svgs[j].parentElement;
+          break;
+        }
+      }
+    }
+    if (create) createTarget = create;
+  }
+
+  function hideNativeNav() {
+    if (!SETTINGS.appTabBar) return;
+    var anchors = document.querySelectorAll('a[href="/direct/inbox/"], a[href^="/explore/"], a[href="/reels/"]');
+    for (var i = 0; i < anchors.length; i++) {
+      var bar = closestFixed(anchors[i]);
+      if (!bar || bar.id === 'insta-tabbar' || bar.classList.contains('insta-native-nav')) continue;
+      var rect = bar.getBoundingClientRect();
+      // Only the bar along the bottom edge, not top headers.
+      if (rect.top > window.innerHeight * 0.6) {
+        learnFromNativeNav(bar);
+        bar.classList.add('insta-native-nav');
+      }
+    }
+  }
+
+  // ---- glass header: the bar fixed along the top edge ---------------------
+  function glassHeader() {
+    var hits = document.elementsFromPoint ? document.elementsFromPoint(window.innerWidth / 2, 4) : [];
+    for (var i = 0; i < hits.length; i++) {
+      if (hits[i] === document.body || hits[i] === root) break;
+      var bar = closestFixed(hits[i]);
+      if (bar && bar.id !== 'insta-tabbar') {
+        var rect = bar.getBoundingClientRect();
+        if (rect.top <= 2 && rect.height < 140 && rect.width > window.innerWidth * 0.8) {
+          bar.classList.add('insta-glass-top');
+        }
+        break;
+      }
+    }
+  }
+
+  // ---- "open in the app" prompts ------------------------------------------
+  var BANNER_TEXT = /^(open app|use the app|get the app|open instagram|app öffnen|in der app öffnen|app verwenden|app holen|not now|jetzt nicht)$/i;
+  function hideAppBanners() {
+    var links = document.querySelectorAll('a[href*="apps.apple.com"], a[href*="itunes.apple.com"], a[href^="itms"], a[href*="play.google.com"], a[href*="/download/"]');
+    for (var i = 0; i < links.length; i++) {
+      var box = closestFixed(links[i]);
+      (box || links[i]).classList.add('insta-app-banner');
+    }
+    var buttons = document.querySelectorAll('button, a[role="button"], div[role="button"]');
+    for (var j = 0; j < buttons.length && j < 200; j++) {
+      var t = (buttons[j].textContent || '').trim();
+      if (/^(open app|use the app|app öffnen|in der app öffnen)$/i.test(t)) {
+        var holder = closestFixed(buttons[j]);
+        if (holder) holder.classList.add('insta-app-banner');
+      }
+    }
+  }
+
   // ---- feed posts ---------------------------------------------------------
-  var SUGGESTED = /^(Suggested for you|Suggested posts|Suggested Reels)$/i;
+  var SUGGESTED = /^(suggested for you|suggested posts|suggested reels|suggestions for you|vorgeschlagen für dich|vorschläge für dich|vorgeschlagene beiträge|vorgeschlagene reels)$/i;
+  var FOLLOW = /^(follow|folgen)$/i;
 
   function hidePosts(scope) {
-    var articles = scope.querySelectorAll ? scope.querySelectorAll('article') : [];
+    if (!isHome(window.location.pathname)) return;
+    var articles = scope.querySelectorAll('article');
     for (var i = 0; i < articles.length; i++) {
       var post = articles[i];
-      if (post.classList.contains('insta-hidden')) continue;
+      if (post.classList.contains('insta-hidden') || post.__instaChecked > 30) continue;
+      post.__instaChecked = (post.__instaChecked || 0) + 1;
 
       if (SETTINGS.hideReelsInFeed && post.querySelector('a[href*="/reel/"]')) {
         post.classList.add('insta-hidden');
         continue;
       }
-      if (SETTINGS.hideSuggestedPosts) {
-        var spans = post.querySelectorAll('span');
-        for (var j = 0; j < spans.length && j < 40; j++) {
-          if (SUGGESTED.test((spans[j].textContent || '').trim())) {
-            post.classList.add('insta-hidden');
-            break;
-          }
+      var texts = post.querySelectorAll('span, div[role="button"], button');
+      for (var j = 0; j < texts.length && j < 60; j++) {
+        var t = (texts[j].textContent || '').trim();
+        if (!t || t.length > 40) continue;
+        // A "Follow" button on a feed post means you don't follow that account.
+        if ((SETTINGS.hideSuggestedPosts && SUGGESTED.test(t)) ||
+            (SETTINGS.hideNotFollowedPosts && FOLLOW.test(t))) {
+          post.classList.add('insta-hidden');
+          break;
         }
       }
     }
   }
 
-  function scan() {
-    if (!document.body) return;
-    fixLinks(document.body);
-    hidePosts(document.body);
+  // ---- the app's own tab bar ---------------------------------------------
+  var ICONS = {
+    home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"><path class="fill-when-active" d="M3.5 10.2 12 3.5l8.5 6.7V20a1 1 0 0 1-1 1h-4.8v-6.2H9.3V21H4.5a1 1 0 0 1-1-1z"/></svg>',
+    search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.6 4.6"/></svg>',
+    create: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><path d="M12 8v8M8 12h8"/></svg>',
+    messages: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"><path class="fill-when-active" d="M12 3.6c-4.9 0-8.6 3.5-8.6 8 0 2.4 1 4.4 2.7 5.9l-.4 3 3-1.3c1 .3 2.1.4 3.3.4 4.9 0 8.6-3.5 8.6-8s-3.7-8-8.6-8z"/></svg>',
+    profile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle class="fill-when-active" cx="12" cy="8.5" r="4"/><path d="M4.5 20.5c1.3-3.6 4.2-5.3 7.5-5.3s6.2 1.7 7.5 5.3"/></svg>'
+  };
+
+  function profilePath() {
+    try { return localStorage.getItem('instaProfilePath'); } catch (e) { return null; }
   }
 
-  // ---- start ------------------------------------------------------------
+  function navigate(path) {
+    // Prefer clicking Instagram's own link so it changes page without a reload.
+    var candidates = document.querySelectorAll('a[href]');
+    for (var i = 0; i < candidates.length; i++) {
+      var href = candidates[i].getAttribute('href');
+      if (href === path || (path === '/?variant=following' && href === '/')) {
+        candidates[i].click();
+        return;
+      }
+    }
+    window.location.assign(path);
+  }
+
+  var tabbar = null;
+  function buildTabbar() {
+    if (!SETTINGS.appTabBar || !document.body) return;
+    if (tabbar && document.body.contains(tabbar)) return;
+    tabbar = document.createElement('nav');
+    tabbar.id = 'insta-tabbar';
+    tabbar.setAttribute('aria-label', 'Tabs');
+    var tabs = [
+      ['home', 'Home'],
+      ['search', 'Search'],
+      ['create', 'New post'],
+      ['messages', 'Messages'],
+      ['profile', 'Profile']
+    ];
+    for (var i = 0; i < tabs.length; i++) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('data-tab', tabs[i][0]);
+      b.setAttribute('aria-label', tabs[i][1]);
+      b.innerHTML = ICONS[tabs[i][0]];
+      b.addEventListener('click', onTab);
+      tabbar.appendChild(b);
+    }
+    document.body.appendChild(tabbar);
+    root.classList.add('insta-has-tabbar');
+    updateTabbar();
+  }
+
+  function onTab(event) {
+    var tab = event.currentTarget.getAttribute('data-tab');
+    if (tab === 'home') {
+      if (isHome(window.location.pathname)) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+      navigate('/?variant=following');
+    } else if (tab === 'search') {
+      navigate('/explore/search/');
+    } else if (tab === 'create') {
+      if (createTarget && document.contains(createTarget)) createTarget.click();
+    } else if (tab === 'messages') {
+      navigate('/direct/inbox/');
+    } else if (tab === 'profile') {
+      navigate(profilePath() || '/accounts/edit/');
+    }
+  }
+
+  function currentTab() {
+    var path = window.location.pathname;
+    if (isHome(path)) return 'home';
+    if (/^\/explore(\/|$)/.test(path)) return 'search';
+    if (/^\/direct(\/|$)/.test(path)) return 'messages';
+    if (/^\/create(\/|$)/.test(path)) return 'create';
+    var p = profilePath();
+    if (p && path.indexOf(p) === 0) return 'profile';
+    return '';
+  }
+
+  function updateTabbar() {
+    if (!tabbar) return;
+    var path = window.location.pathname;
+    // Inside a chat or while composing a post, the keyboard and composer need the space.
+    var hide = /^\/direct\/t\//.test(path) || /^\/create\//.test(path) || /^\/stories\//.test(path) || /^\/accounts\/login/.test(path);
+    tabbar.classList.toggle('insta-tabbar-hidden', hide);
+    root.classList.toggle('insta-has-tabbar', !hide);
+
+    var active = currentTab();
+    var buttons = tabbar.querySelectorAll('button');
+    for (var i = 0; i < buttons.length; i++) {
+      var name = buttons[i].getAttribute('data-tab');
+      buttons[i].classList.toggle('insta-active', name === active);
+      if (name === 'create') buttons[i].classList.toggle('insta-hidden-tab', !(createTarget && document.contains(createTarget)));
+    }
+    var pic = null;
+    try { pic = localStorage.getItem('instaProfilePic'); } catch (e) {}
+    var profileBtn = tabbar.querySelector('[data-tab="profile"]');
+    if (pic && profileBtn && !profileBtn.querySelector('img')) {
+      var img = document.createElement('img');
+      img.className = 'insta-avatar';
+      img.alt = '';
+      img.src = pic;
+      img.onerror = function () { profileBtn.innerHTML = ICONS.profile; };
+      profileBtn.innerHTML = '';
+      profileBtn.appendChild(img);
+    }
+  }
+
+  // Hide the bar while typing so it never covers the keyboard.
+  document.addEventListener('focusin', function (e) {
+    if (tabbar && e.target && e.target.matches && e.target.matches('input, textarea, [contenteditable="true"]')) {
+      tabbar.classList.add('insta-tabbar-hidden');
+    }
+  });
+  document.addEventListener('focusout', function () { setTimeout(updateTabbar, 50); });
+
+  // ---- main loop ----------------------------------------------------------
+  function scan() {
+    if (!document.body) return;
+    ensureStyle();
+    fixViewport();
+    fixLinks(document.body);
+    hideNativeNav();
+    hideAppBanners();
+    glassHeader();
+    hidePosts(document.body);
+    buildTabbar();
+    updateTabbar();
+  }
+
   if (enforceUrl()) return;
   addStyle();
   patchHistory('pushState');
@@ -134,21 +404,22 @@
     pending = true;
     window.requestAnimationFrame(function () {
       pending = false;
-      addStyle();
       onUrlChange();
       scan();
     });
   });
 
   function start() {
-    addStyle();
     scan();
     observer.observe(document.documentElement, { childList: true, subtree: true });
+    // URL changes that skip history.pushState (rare) are still caught here.
+    setInterval(function () { onUrlChange(); }, 700);
   }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', start);
   } else {
     start();
+  }
   }
 })();

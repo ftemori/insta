@@ -30,6 +30,8 @@ Edit [`src/settings.json`](src/settings.json) and push. GitHub Actions rebuilds 
 | `hideReelsInFeed` | `false` | Also hides Reels posted by people you follow |
 | `searchWithoutExplore` | `true` | Search opens straight to the search box, no suggested grid |
 | `hideSuggestedPosts` | `true` | Hides "Suggested for you" posts |
+| `hideNotFollowedPosts` | `true` | Hides feed posts from accounts you don't follow (ones with a Follow button) |
+| `appTabBar` | `true` | Replaces Instagram's web bottom bar with a floating glass tab bar: Home, Search, New post, Messages, Profile |
 
 ## How it's built
 

@@ -45,8 +45,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 }
 
 /// The app's screen: Capacitor's web view plus the Insta focus script.
-/// It lives in this file so no Xcode project changes are needed.
 class MainViewController: CAPBridgeViewController {
+    private var injectSource: String?
+    private var reinjectTimer: Timer?
 
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
@@ -57,8 +58,33 @@ class MainViewController: CAPBridgeViewController {
             CAPLog.print("Insta: public/inject.js is missing")
             return
         }
+        injectSource = source
         let script = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true)
         webView?.configuration.userContentController.addUserScript(script)
+
+        // Feel like an app, not a browser.
         webView?.allowsBackForwardNavigationGestures = true
+        webView?.allowsLinkPreview = false
+        webView?.scrollView.contentInsetAdjustmentBehavior = .never
+        webView?.scrollView.bounces = true
+        webView?.isOpaque = false
+        webView?.backgroundColor = .systemBackground
+        webView?.scrollView.backgroundColor = .systemBackground
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // Safety net: if a page ever loads without the script, add it.
+        // The script ignores repeat runs, so this is cheap.
+        reinjectTimer?.invalidate()
+        reinjectTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self, let source = self.injectSource, let webView = self.webView else { return }
+            guard webView.url?.host?.hasSuffix("instagram.com") == true else { return }
+            webView.evaluateJavaScript("window.__instaFocus === true") { result, _ in
+                if (result as? Bool) != true {
+                    webView.evaluateJavaScript(source, completionHandler: nil)
+                }
+            }
+        }
     }
 }
