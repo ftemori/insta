@@ -1,0 +1,21 @@
+{
+  "name": "insta",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A distraction-free wrapper around Instagram's website: no Reels, no Explore grid, Following-only feed.",
+  "scripts": {
+    "build": "node scripts/build-inject.mjs",
+    "sync": "npm run build && npx cap sync"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/ios": "^8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^4.0.0",
+    "@capacitor/cli": "^8.6.2",
+    "sharp": "^0.35.5"
+  }
+}

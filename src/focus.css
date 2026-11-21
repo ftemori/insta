@@ -1,0 +1,25 @@
+/* Insta focus rules. Classes on <html> are set by focus.js from settings.json. */
+
+/* Reels tab in the bottom/side navigation */
+html.insta-hide-reels-tab a[href="/reels/"],
+html.insta-hide-reels-tab a[href^="/reels/"] {
+  display: none !important;
+}
+
+/* "For you" / "Following" switcher at the top of the home feed */
+html.insta-following-only a[href="/?variant=home"],
+html.insta-following-only a[href^="/?variant=home&"] {
+  display: none !important;
+}
+
+/* Explore grid: on the search page only the search box and results stay */
+html.insta-on-explore main a[href^="/p/"],
+html.insta-on-explore main a[href^="/reel/"],
+html.insta-on-explore main a[href^="/reels/"] {
+  display: none !important;
+}
+
+/* Posts hidden by focus.js (Reels in feed, suggested posts) */
+.insta-hidden {
+  display: none !important;
+}
