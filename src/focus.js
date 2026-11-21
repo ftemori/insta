@@ -10,6 +10,8 @@
   window.__instaFocus = true;
 
   var SETTINGS = __SETTINGS__;
+  // Set by the iPhone app: each tab is its own page that stays loaded.
+  var NATIVE = window.__instaNative || null;
   var CSS = __CSS__;
 
   // At document start the <html> element may not exist yet.
@@ -107,10 +109,16 @@
     } catch (e) { return false; }
   }
 
+  var pageReady = false;
   function enforceUrl() {
     var target = targetFor(window.location);
     if (target && !recentlyRedirected(target)) {
       try { sessionStorage.setItem('instaFocusRedirect', JSON.stringify({ to: target, at: Date.now() })); } catch (e) {}
+      if (pageReady) {
+        // Already running: switch page in place, no reload.
+        spaGo(target, true);
+        return false;
+      }
       window.location.replace(target);
       return true;
     }
@@ -256,6 +264,45 @@
     }
   }
 
+  // ---- "use the app" sheets: dismiss them -------------------------------
+  var USE_APP = /^(app verwenden|instagram-app verwenden|in der app öffnen|app öffnen|use the app|use app|open the app|open app|open instagram|get the app|zur app wechseln|switch to the app)$/i;
+  var DISMISS = /^(nicht jetzt|not now|schließen|close|abbrechen|cancel|im browser fortfahren|weiter im browser|continue in browser|continue on web|im web fortfahren)$/i;
+  function dismissUseAppSheets() {
+    var els = document.querySelectorAll('button, a, [role="button"], [role="link"], span, div');
+    var checked = 0;
+    for (var i = 0; i < els.length && checked < 4000; i++) {
+      var el = els[i];
+      if (el.children.length > 2) continue;
+      checked++;
+      var t = (el.textContent || '').trim();
+      if (!t || t.length > 30 || !USE_APP.test(t)) continue;
+      var box = el.closest('[role="dialog"], [role="alertdialog"]') || closestFixed(el);
+      if (!box || box.id === 'insta-tabbar' || box.id === 'insta-header') continue;
+      var closed = false;
+      var buttons = box.querySelectorAll('button, a, [role="button"], [aria-label]');
+      for (var j = 0; j < buttons.length; j++) {
+        var bt = (buttons[j].textContent || buttons[j].getAttribute('aria-label') || '').trim();
+        if (DISMISS.test(bt)) { buttons[j].click(); closed = true; break; }
+      }
+      if (!closed) box.classList.add('insta-app-banner');
+    }
+  }
+
+  // Search: "Cancel" only closes the keyboard.
+  document.addEventListener('click', function (e) {
+    if (!/^\/explore\/search/.test(window.location.pathname)) return;
+    var node = e.target;
+    for (var d = 0; node && d < 4; d++, node = node.parentElement) {
+      if (/^(abbrechen|cancel)$/i.test((node.textContent || '').trim())) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        return;
+      }
+    }
+  }, true);
+
   // ---- feed posts ---------------------------------------------------------
   var SUGGESTED = /^(suggested for you|suggested posts|suggested reels|suggestions for you|vorgeschlagen für dich|vorschläge für dich|vorgeschlagene beiträge|vorgeschlagene reels)$/i;
   var FOLLOW = /^(follow|folgen)$/i;
@@ -345,17 +392,16 @@
     try { return localStorage.getItem('instaProfilePath'); } catch (e) { return null; }
   }
 
+  // Change page inside Instagram's app without reloading it.
+  function spaGo(path, replace) {
+    if (replace) history.replaceState(history.state, '', path);
+    else history.pushState(history.state, '', path);
+    window.dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+  }
+
   function navigate(path) {
-    // Prefer clicking Instagram's own link so it changes page without a reload.
-    var candidates = document.querySelectorAll('a[href]');
-    for (var i = 0; i < candidates.length; i++) {
-      var href = candidates[i].getAttribute('href');
-      if (href === path || (path === '/?variant=following' && href === '/')) {
-        candidates[i].click();
-        return;
-      }
-    }
-    window.location.assign(path);
+    if (window.location.pathname + window.location.search === path) return;
+    spaGo(path, false);
   }
 
   var tabbar = null;
@@ -385,8 +431,23 @@
     updateTabbar();
   }
 
+  var TAB_ROOT = { home: '/?variant=following', messages: '/direct/inbox/', search: '/explore/search/' };
+
   function onTab(event) {
     var tab = event.currentTarget.getAttribute('data-tab');
+    if (NATIVE) {
+      if (tab !== NATIVE.tab) {
+        var path = tab === 'profile' ? (profilePath() || '/') : TAB_ROOT[tab];
+        try { window.webkit.messageHandlers.insta.postMessage({ action: 'tab', tab: tab, path: path }); } catch (e) {}
+        return;
+      }
+      // Tapping the tab you're on: back to its start, or scroll to top.
+      var rootPath = tab === 'profile' ? profilePath() : TAB_ROOT[tab];
+      var here = window.location.pathname + (tab === 'home' ? window.location.search : '');
+      if (!rootPath || here === rootPath || (tab === 'home' && isHome(window.location.pathname))) scrollToTop();
+      else navigate(rootPath);
+      return;
+    }
     if (tab === 'home') {
       if (isHome(window.location.pathname)) { scrollToTop(); return; }
       navigate('/?variant=following');
@@ -402,6 +463,7 @@
   }
 
   function currentTab() {
+    if (NATIVE) return NATIVE.tab;
     var path = window.location.pathname;
     if (isHome(path)) return 'home';
     if (/^\/explore(\/|$)/.test(path)) return 'search';
@@ -466,6 +528,7 @@
     hideNativeNav();
     learnCreate();
     hideAppBanners();
+    dismissUseAppSheets();
     glassHeader();
     hidePosts(document.body);
     buildTabbar();
@@ -475,6 +538,7 @@
   }
 
   if (enforceUrl()) return;
+  pageReady = true;
   addStyle();
   patchHistory('pushState');
   patchHistory('replaceState');
