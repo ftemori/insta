@@ -24,8 +24,17 @@
 
   function boot() {
   var root = document.documentElement;
-  if (SETTINGS.hideReelsTab) root.classList.add('insta-hide-reels-tab');
-  if (SETTINGS.followingOnlyFeed) root.classList.add('insta-following-only');
+  // Instagram rewrites <html class="...">, so our state lives in data-insta="...".
+  function flag(name, on) {
+    var list = (root.getAttribute('data-insta') || '').split(' ').filter(Boolean);
+    var i = list.indexOf(name);
+    if (on && i === -1) list.push(name);
+    if (!on && i !== -1) list.splice(i, 1);
+    var value = list.join(' ');
+    if (root.getAttribute('data-insta') !== value) root.setAttribute('data-insta', value);
+  }
+  if (SETTINGS.hideReelsTab) flag('hide-reels-tab', true);
+  if (SETTINGS.followingOnlyFeed) flag('following-only', true);
 
   // ---- styles -----------------------------------------------------------
   // Constructed stylesheets are not blocked by a page's Content Security Policy,
@@ -105,7 +114,7 @@
       window.location.replace(target);
       return true;
     }
-    root.classList.toggle('insta-on-explore', /^\/explore(\/|$)/.test(window.location.pathname));
+    flag('on-explore', /^\/explore(\/|$)/.test(window.location.pathname));
     return false;
   }
 
@@ -152,6 +161,7 @@
   }
 
   var createTarget = null;
+  var unreadCount = '';
 
   function learnFromNativeNav(nav) {
     // Profile link: the nav entry pointing at "/<username>/".
@@ -178,6 +188,22 @@
       }
     }
     if (create) createTarget = create;
+    // Unread messages badge on Instagram's DM link.
+    var dm = nav.querySelector('a[href^="/direct/"]');
+    if (dm) {
+      var m = (dm.innerText || '').match(/\d+/);
+      unreadCount = m ? m[0] : '';
+    }
+  }
+
+  function learnCreate() {
+    if (createTarget && document.contains(createTarget)) return;
+    var head = document.querySelector('header');
+    if (!head) return;
+    var plain = head.querySelectorAll('a[href="#"], [role="button"]');
+    for (var i = 0; i < plain.length; i++) {
+      if (plain[i].querySelector('svg')) { createTarget = plain[i]; return; }
+    }
   }
 
   function hideNativeNav() {
@@ -205,6 +231,7 @@
         var rect = bar.getBoundingClientRect();
         if (rect.top <= 2 && rect.height < 140 && rect.width > window.innerWidth * 0.8) {
           bar.classList.add('insta-glass-top');
+          bar.classList.add('insta-native-top');
         }
         break;
       }
@@ -259,6 +286,52 @@
     }
   }
 
+  // ---- the app's own top bar on Home ------------------------------------
+  var HEADER_ICONS = {
+    heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M12 20.3s-7.8-4.6-8.9-9.6C2.4 7.4 4.6 4.6 7.6 4.6c2 0 3.4 1.1 4.4 2.6 1-1.5 2.4-2.6 4.4-2.6 3 0 5.2 2.8 4.5 6.1-1.1 5-8.9 9.6-8.9 9.6z"/></svg>'
+  };
+  var header = null;
+  function buildHeader() {
+    if (!SETTINGS.appTabBar || !document.body) return;
+    if (header && document.body.contains(header)) return;
+    header = document.createElement('div');
+    header.id = 'insta-header';
+    header.innerHTML = '<div class="insta-header-left"><button type="button" class="insta-create" aria-label="New post">' + ICONS.create + '</button>' +
+      '<div class="insta-wordmark">Insta</div></div><div class="insta-header-actions">' +
+      '<button type="button" data-go="/notifications/" aria-label="Activity">' + HEADER_ICONS.heart + '</button></div>';
+    header.querySelector('[data-go]').addEventListener('click', function (e) {
+      navigate(e.currentTarget.getAttribute('data-go'));
+    });
+    header.querySelector('.insta-create').addEventListener('click', function () {
+      learnCreate();
+      if (createTarget && document.contains(createTarget)) createTarget.click();
+    });
+    header.querySelector('.insta-wordmark').addEventListener('click', function () {
+      scrollToTop();
+    });
+    document.body.appendChild(header);
+  }
+
+  function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    var main = document.querySelector('main');
+    var node = main;
+    while (node && node !== document.body) {
+      if (node.scrollHeight > node.clientHeight + 10) {
+        var oy = window.getComputedStyle(node).overflowY;
+        if (oy === 'auto' || oy === 'scroll') { node.scrollTo({ top: 0, behavior: 'smooth' }); break; }
+      }
+      node = node.parentElement;
+    }
+  }
+
+  function updateHeader() {
+    if (!header) return;
+    var show = isHome(window.location.pathname);
+    header.classList.toggle('insta-header-hidden', !show);
+    flag('has-header', show);
+  }
+
   // ---- the app's own tab bar ---------------------------------------------
   var ICONS = {
     home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"><path class="fill-when-active" d="M3.5 10.2 12 3.5l8.5 6.7V20a1 1 0 0 1-1 1h-4.8v-6.2H9.3V21H4.5a1 1 0 0 1-1-1z"/></svg>',
@@ -294,9 +367,8 @@
     tabbar.setAttribute('aria-label', 'Tabs');
     var tabs = [
       ['home', 'Home'],
-      ['search', 'Search'],
-      ['create', 'New post'],
       ['messages', 'Messages'],
+      ['search', 'Search'],
       ['profile', 'Profile']
     ];
     for (var i = 0; i < tabs.length; i++) {
@@ -309,14 +381,14 @@
       tabbar.appendChild(b);
     }
     document.body.appendChild(tabbar);
-    root.classList.add('insta-has-tabbar');
+    flag('has-tabbar', true);
     updateTabbar();
   }
 
   function onTab(event) {
     var tab = event.currentTarget.getAttribute('data-tab');
     if (tab === 'home') {
-      if (isHome(window.location.pathname)) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+      if (isHome(window.location.pathname)) { scrollToTop(); return; }
       navigate('/?variant=following');
     } else if (tab === 'search') {
       navigate('/explore/search/');
@@ -346,14 +418,22 @@
     // Inside a chat or while composing a post, the keyboard and composer need the space.
     var hide = /^\/direct\/t\//.test(path) || /^\/create\//.test(path) || /^\/stories\//.test(path) || /^\/accounts\/login/.test(path);
     tabbar.classList.toggle('insta-tabbar-hidden', hide);
-    root.classList.toggle('insta-has-tabbar', !hide);
+    flag('has-tabbar', !hide);
 
     var active = currentTab();
     var buttons = tabbar.querySelectorAll('button');
     for (var i = 0; i < buttons.length; i++) {
       var name = buttons[i].getAttribute('data-tab');
       buttons[i].classList.toggle('insta-active', name === active);
-      if (name === 'create') buttons[i].classList.toggle('insta-hidden-tab', !(createTarget && document.contains(createTarget)));
+      if (name === 'messages') {
+        var badge = buttons[i].querySelector('.insta-badge');
+        if (unreadCount) {
+          if (!badge) { badge = document.createElement('span'); badge.className = 'insta-badge'; buttons[i].appendChild(badge); }
+          badge.textContent = unreadCount;
+        } else if (badge) {
+          badge.remove();
+        }
+      }
     }
     var pic = null;
     try { pic = localStorage.getItem('instaProfilePic'); } catch (e) {}
@@ -384,11 +464,14 @@
     fixViewport();
     fixLinks(document.body);
     hideNativeNav();
+    learnCreate();
     hideAppBanners();
     glassHeader();
     hidePosts(document.body);
     buildTabbar();
     updateTabbar();
+    buildHeader();
+    updateHeader();
   }
 
   if (enforceUrl()) return;

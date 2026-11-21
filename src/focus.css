@@ -21,26 +21,26 @@ body *:not(input):not(textarea):not([contenteditable="true"]):not([contenteditab
 }
 
 /* ---- Leave room for the floating tab bar ---- */
-html.insta-has-tabbar body {
+html[data-insta~="has-tabbar"] body {
   padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important;
 }
 
 /* ---- Reels ---- */
-html.insta-hide-reels-tab a[href="/reels/"],
-html.insta-hide-reels-tab a[href^="/reels/"] {
+html[data-insta~="hide-reels-tab"] a[href="/reels/"],
+html[data-insta~="hide-reels-tab"] a[href^="/reels/"] {
   display: none !important;
 }
 
 /* ---- Home feed: hide the "For you" switch ---- */
-html.insta-following-only a[href="/?variant=home"],
-html.insta-following-only a[href^="/?variant=home&"] {
+html[data-insta~="following-only"] a[href="/?variant=home"],
+html[data-insta~="following-only"] a[href^="/?variant=home&"] {
   display: none !important;
 }
 
 /* ---- Search without the Explore grid ---- */
-html.insta-on-explore main a[href^="/p/"],
-html.insta-on-explore main a[href^="/reel/"],
-html.insta-on-explore main a[href^="/reels/"] {
+html[data-insta~="on-explore"] main a[href^="/p/"],
+html[data-insta~="on-explore"] main a[href^="/reel/"],
+html[data-insta~="on-explore"] main a[href^="/reels/"] {
   display: none !important;
 }
 
@@ -144,4 +144,59 @@ html.insta-on-explore main a[href^="/reels/"] {
   .insta-glass-top > div {
     background-color: rgba(0, 0, 0, 0.6) !important;
   }
+}
+
+/* ===== App top bar on Home ===== */
+#insta-header {
+  position: fixed;
+  z-index: 2147482999;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50px;
+  padding: 0 8px 0 16px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #111;
+  background: rgba(255, 255, 255, 0.72);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+}
+#insta-header.insta-header-hidden { display: none; }
+#insta-header .insta-wordmark {
+  font-family: "Snell Roundhand", "Savoye LET", "Brush Script MT", cursive;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  line-height: 1;
+  padding-top: 4px;
+}
+#insta-header .insta-header-actions { display: flex; gap: 4px; }
+#insta-header button {
+  width: 44px; height: 44px; border: 0; padding: 0; border-radius: 22px;
+  background: transparent; color: inherit; display: flex; align-items: center; justify-content: center;
+  -webkit-appearance: none; appearance: none;
+}
+#insta-header button:active { background: rgba(127, 127, 127, 0.18); }
+#insta-header svg { width: 26px; height: 26px; }
+@media (prefers-color-scheme: dark) {
+  #insta-header { color: #f5f5f5; background: rgba(0, 0, 0, 0.62); }
+}
+/* Instagram's own top bar sits under ours on Home */
+html[data-insta~="has-header"] .insta-native-top { visibility: hidden !important; }
+
+/* ===== App typography ===== */
+body, button, input, textarea {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif !important;
+}
+#insta-header .insta-header-left { display: flex; align-items: center; gap: 6px; margin-left: -8px; }
+#insta-tabbar button { position: relative; }
+#insta-tabbar .insta-badge {
+  position: absolute; top: 6px; left: 50%; margin-left: 6px;
+  min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
+  border-radius: 9px; background: #ff3040; color: #fff;
+  font-size: 11px; font-weight: 600; line-height: 18px; text-align: center;
 }
